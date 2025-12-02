@@ -1,3 +1,5 @@
+// app/page.tsx
+import { redirect } from "next/navigation";
 "use client";
 
 import { useState, useEffect } from "react";
@@ -14,6 +16,8 @@ type PrescriptionNFT = {
 };
 
 export default function Home() {
+  // Send anyone hitting "/" straight to the pharmacy overview
+  redirect("/pharmacy");
   const prescriptionContractAddress = "0x51fCc50146E3920f0ce2a91b59B631235Aa52dd3";
   const passportContractAddress = "0xb8Df87631dBB64D28a4c015b23540F1ce02445e2";
   const [loading, setLoading] = useState(true);
