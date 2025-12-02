@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { readAllPrescriptionNFTs } from "@/lib/prescriptions";
+import { readAllMedicalPassportNFTs } from "@/lib/passports";
 
 type PrescriptionNFT = {
   tokenId: number;
@@ -13,9 +14,11 @@ type PrescriptionNFT = {
 };
 
 export default function Home() {
-  const contractAddress = "0x51fCc50146E3920f0ce2a91b59B631235Aa52dd3";
+  const prescriptionContractAddress = "0x51fCc50146E3920f0ce2a91b59B631235Aa52dd3";
+  const passportContractAddress = "0xb8Df87631dBB64D28a4c015b23540F1ce02445e2";
   const [loading, setLoading] = useState(true);
   const [nfts, setNfts] = useState<PrescriptionNFT[]>([]);
+  const [passports, setPassports] = useState<any[]>([]);
   const [expandedTokenId, setExpandedTokenId] = useState<number | null>(null);
   const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionNFT | null>(null);
   const [patientStatuses, setPatientStatuses] = useState<Record<number, string>>({});
@@ -25,10 +28,57 @@ export default function Home() {
     const loadNFTs = async () => {
       setLoading(true);
       try {
-        const data = await readAllPrescriptionNFTs(contractAddress);
-        setNfts(data);
+        const [prescriptionData, passportData] = await Promise.all([
+          readAllPrescriptionNFTs(prescriptionContractAddress),
+          readAllMedicalPassportNFTs(passportContractAddress)
+        ]);
+        setPassports(passportData);
+        
+        // Create a map of passport owner addresses to arrays of passports (multiple passports can have same owner)
+        const passportMapByOwner = new Map<string, any[]>();
+        passportData.forEach((p: any) => {
+          const ownerKey = p.owner?.toLowerCase();
+          if (ownerKey) {
+            if (!passportMapByOwner.has(ownerKey)) {
+              passportMapByOwner.set(ownerKey, []);
+            }
+            passportMapByOwner.get(ownerKey)!.push(p);
+          }
+        });
+        
+        // Helper function to find the best matching passport (prefer one with valid name)
+        const findBestMatchingPassport = (ownerAddress: string): any | null => {
+          const ownerKey = ownerAddress?.toLowerCase();
+          if (!ownerKey) return null;
+          
+          const matchingPassports = passportMapByOwner.get(ownerKey) || [];
+          
+          // First, try to find a passport with a valid name
+          const passportWithName = matchingPassports.find(
+            (p: any) => p.name && p.name.trim() !== ""
+          );
+          
+          if (passportWithName) {
+            return passportWithName;
+          }
+          
+          // If no passport with valid name, return null (don't match)
+          return null;
+        };
+        
+        // Filter prescriptions to only show those with a matching passport that has a valid name
+        // Match by owner address: prescription.owner (Patient ID - 0x address) === passport.owner (0x address)
+        const filteredPrescriptions = prescriptionData.filter((prescription: PrescriptionNFT) => {
+          const matchingPassport = findBestMatchingPassport(prescription.owner);
+          // Only include if we found a matching passport with a valid name
+          return matchingPassport !== null;
+        });
+        
+        setNfts(filteredPrescriptions);
+        console.log("Loaded passports:", passportData);
+        console.log("Filtered prescriptions count:", filteredPrescriptions.length);
       } catch (err: any) {
-        console.error("Failed to fetch prescription NFTs:", err);
+        console.error("Failed to fetch NFTs:", err);
       } finally {
         setLoading(false);
       }
@@ -78,6 +128,53 @@ export default function Home() {
     }));
   };
 
+  // Helper function to find matching passport for a prescription
+  // Matches by owner address: prescription.owner (Patient ID - 0x address) === passport.owner (0x address)
+  // Prefers passports with valid names
+  const getMatchingPassport = (prescription: PrescriptionNFT) => {
+    const ownerKey = prescription.owner?.toLowerCase();
+    if (!ownerKey) return null;
+    
+    // Find all passports with matching owner
+    const matchingPassports = passports.filter((p: any) => 
+      p.owner?.toLowerCase() === ownerKey
+    );
+    
+    // First, try to find a passport with a valid name
+    const passportWithName = matchingPassports.find(
+      (p: any) => p.name && p.name.trim() !== ""
+    );
+    
+    if (passportWithName) {
+      return passportWithName;
+    }
+    
+    // If no passport with valid name, return null
+    return null;
+  };
+
+  // Helper function to calculate age from date of birth
+  const calculateAge = (dateOfBirth: string): number | null => {
+    if (!dateOfBirth || dateOfBirth.trim() === "") return null;
+    
+    try {
+      const dob = new Date(dateOfBirth);
+      if (isNaN(dob.getTime())) return null;
+      
+      const today = new Date();
+      let age = today.getFullYear() - dob.getFullYear();
+      const monthDiff = today.getMonth() - dob.getMonth();
+      
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+        age--;
+      }
+      
+      return age;
+    } catch {
+      return null;
+    }
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black p-8">
       <main className="w-full max-w-2xl bg-white dark:bg-black rounded-lg shadow-lg p-8">
@@ -105,6 +202,9 @@ export default function Home() {
               return getPriority(statusA) - getPriority(statusB);
             }).map((nft) => {
               const status = patientStatuses[nft.tokenId];
+              const matchingPassport = getMatchingPassport(nft);
+              const age = matchingPassport ? calculateAge(matchingPassport.dateOfBirth) : null;
+              
               const getCardStyles = () => {
                 if (status === "Pending") {
                   return "border-2 border-orange-500 dark:border-orange-400 bg-orange-50 dark:bg-orange-950/30 shadow-md";
@@ -136,37 +236,41 @@ export default function Home() {
                   onClick={() => toggleExpand(nft.tokenId)}
                   className={`w-full px-4 py-3 text-left ${getButtonStyles()} transition-colors flex items-center justify-between`}
                 >
-                  <span className="font-mono text-sm text-black dark:text-zinc-50">
+                  <span className={`font-mono text-sm ${getTextStyles()}`}>
                     Patient ID: {nft.owner}
                   </span>
-                  <span className="text-zinc-400">
+                  <span className={status === "Completed" ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-400"}>
                     {expandedTokenId === nft.tokenId ? "−" : "+"}
                   </span>
                 </button>
                 {expandedTokenId === nft.tokenId && (
-                  <div className="px-4 pb-4 pt-2 border-t border-zinc-300 dark:border-zinc-700">
+                  <div className={`px-4 pb-4 pt-2 border-t ${status === "Completed" ? "border-zinc-200 dark:border-zinc-800" : "border-zinc-300 dark:border-zinc-700"}`}>
                     <div className="space-y-4">
                       <div className="space-y-2 text-sm">
                         <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Patient Information</h3>
                         <div>
                           <span className="font-medium text-black dark:text-zinc-50">Name: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">John Doe</span>
+                          <span className="text-zinc-600 dark:text-zinc-400">
+                            {matchingPassport?.name || "N/A"}
+                          </span>
                         </div>
-                        <div>
-                          <span className="font-medium text-black dark:text-zinc-50">Age: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">45</span>
-                        </div>
+                        {age !== null && (
+                          <div>
+                            <span className="font-medium text-black dark:text-zinc-50">Age: </span>
+                            <span className="text-zinc-600 dark:text-zinc-400">{age}</span>
+                          </div>
+                        )}
                         <div>
                           <span className="font-medium text-black dark:text-zinc-50">Date of Birth: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">01/15/1979</span>
+                          <span className="text-zinc-600 dark:text-zinc-400">
+                            {matchingPassport?.dateOfBirth || "N/A"}
+                          </span>
                         </div>
                         <div>
-                          <span className="font-medium text-black dark:text-zinc-50">Address: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">123 Main St, City, State 12345</span>
-                        </div>
-                        <div>
-                          <span className="font-medium text-black dark:text-zinc-50">Phone: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">(555) 123-4567</span>
+                          <span className="font-medium text-black dark:text-zinc-50">Contact Info: </span>
+                          <span className="text-zinc-600 dark:text-zinc-400">
+                            {matchingPassport?.contactInfo || "N/A"}
+                          </span>
                         </div>
                         {patientStatuses[nft.tokenId] && (
                           <div>
