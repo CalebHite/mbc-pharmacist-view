@@ -4,19 +4,84 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { readAllPrescriptionNFTs } from "@/lib/prescriptions";
+import { readAllMedicalPassportNFTs } from "@/lib/passports";
 import { PrescriptionNFT } from "@/lib/pharmacy/types";
 
+type MedicalPassportNFT = {
+  tokenId: number;
+  owner: string;
+  name: string;
+  contactInfo: string;
+  dateOfBirth: string;
+  socialSecurityNumber: string;
+  medicalHistory: string;
+  pastDiagnoses: string;
+  familyHistory: string;
+  allergies: string;
+  currentMedications: string;
+  treatmentRegimens: string;
+  vitalSigns: string;
+  metadata: any;
+};
+
+type PrescriptionWithPassport = PrescriptionNFT & {
+  passport: MedicalPassportNFT | null;
+};
+
+// Helper function to check if a name is valid
+function isValidName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const normalized = name.trim().toLowerCase();
+  return normalized !== "" && 
+         normalized !== "n/a" && 
+         normalized !== "na" &&
+         normalized !== "unknown" &&
+         normalized !== "unknown patient";
+}
+
 export default function PrescriptionsPage() {
-  const contractAddress = "0x51fCc50146E3920f0ce2a91b59B631235Aa52dd3";
+  const prescriptionContractAddress = "0x51fCc50146E3920f0ce2a91b59B631235Aa52dd3";
+  const passportContractAddress = "0xb8Df87631dBB64D28a4c015b23540F1ce02445e2";
   const [loading, setLoading] = useState(true);
-  const [nfts, setNfts] = useState<PrescriptionNFT[]>([]);
+  const [nfts, setNfts] = useState<PrescriptionWithPassport[]>([]);
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const data = await readAllPrescriptionNFTs(contractAddress);
-        setNfts(data);
+        const [prescriptionData, passportData] = await Promise.all([
+          readAllPrescriptionNFTs(prescriptionContractAddress),
+          readAllMedicalPassportNFTs(passportContractAddress)
+        ]);
+
+        // Create a map of passport owner addresses to passports (only with valid names)
+        const passportMapByOwner = new Map<string, MedicalPassportNFT>();
+        (passportData as MedicalPassportNFT[]).forEach((p) => {
+          const ownerKey = p.owner?.toLowerCase();
+          if (ownerKey && isValidName(p.name)) {
+            // Prefer passports with valid names
+            if (!passportMapByOwner.has(ownerKey) || isValidName(p.name)) {
+              passportMapByOwner.set(ownerKey, p);
+            }
+          }
+        });
+
+        // Pair prescriptions with passports and filter out those without valid names
+        const prescriptionsWithPassports: PrescriptionWithPassport[] = prescriptionData
+          .map((prescription: PrescriptionNFT) => {
+            const ownerKey = prescription.owner?.toLowerCase();
+            const matchingPassport = ownerKey ? passportMapByOwner.get(ownerKey) || null : null;
+            return {
+              ...prescription,
+              passport: matchingPassport
+            };
+          })
+          .filter((prescription) => 
+            prescription.passport !== null && isValidName(prescription.passport.name)
+          );
+
+        setNfts(prescriptionsWithPassports);
+        console.log("Loaded prescriptions with passports:", prescriptionsWithPassports);
       } catch (err) {
         console.error("Failed to fetch prescription NFTs:", err);
       } finally {
@@ -84,9 +149,11 @@ export default function PrescriptionsPage() {
                   >
                     <td className="px-3 py-2 align-middle">
                       <div className="flex flex-col">
-                        <span className="text-xs text-slate-300">
-                          {nft.owner.slice(0, 6)}…
-                          {nft.owner.slice(-4)}
+                        <span className="text-xs text-slate-100">
+                          {nft.passport?.name}
+                        </span>
+                        <span className="text-[10px] text-slate-500">
+                          {nft.owner.slice(0, 6)}…{nft.owner.slice(-4)}
                         </span>
                       </div>
                     </td>

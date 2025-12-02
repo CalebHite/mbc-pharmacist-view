@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { readAllPrescriptionNFTs } from "@/lib/prescriptions";
+import { readAllMedicalPassportNFTs } from "@/lib/passports";
 import {
   DeliveryFormState,
   EMPTY_DELIVERY_FORM,
@@ -11,6 +12,23 @@ import {
   PrescriptionNFT,
   PrescriptionStatus,
 } from "@/lib/pharmacy/types";
+
+type MedicalPassportNFT = {
+  tokenId: number;
+  owner: string;
+  name: string;
+  contactInfo: string;
+  dateOfBirth: string;
+  socialSecurityNumber: string;
+  medicalHistory: string;
+  pastDiagnoses: string;
+  familyHistory: string;
+  allergies: string;
+  currentMedications: string;
+  treatmentRegimens: string;
+  vitalSigns: string;
+  metadata: any;
+};
 
 type TimelineEvent = {
   id: string;
@@ -21,16 +39,29 @@ type TimelineEvent = {
 const tabs = ["Review", "Billing", "Fulfillment", "Timeline"] as const;
 type Tab = (typeof tabs)[number];
 
+// Helper function to check if a name is valid
+function isValidName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const normalized = name.trim().toLowerCase();
+  return normalized !== "" && 
+         normalized !== "n/a" && 
+         normalized !== "na" &&
+         normalized !== "unknown" &&
+         normalized !== "unknown patient";
+}
+
 export default function PrescriptionWorkspacePage() {
   const { tokenId } = useParams<{ tokenId: string }>();
   const numericId = useMemo(() => Number(tokenId), [tokenId]);
 
-  const contractAddress = "0x51fCc50146E3920f0ce2a91b59B631235Aa52dd3";
+  const prescriptionContractAddress = "0x51fCc50146E3920f0ce2a91b59B631235Aa52dd3";
+  const passportContractAddress = "0xb8Df87631dBB64D28a4c015b23540F1ce02445e2";
 
   const [loading, setLoading] = useState(true);
   const [prescription, setPrescription] = useState<PrescriptionNFT | null>(
     null
   );
+  const [passport, setPassport] = useState<MedicalPassportNFT | null>(null);
   const [status, setStatus] = useState<PrescriptionStatus>("New");
   const [activeTab, setActiveTab] = useState<Tab>("Review");
 
@@ -45,17 +76,33 @@ export default function PrescriptionWorkspacePage() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [message, setMessage] = useState<string | null>(null);
 
-  // Load the single prescription
+  // Load the single prescription and matching passport
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const data = await readAllPrescriptionNFTs(contractAddress);
-        const found = data.find((p) => p.tokenId === numericId) || null;
+        const [prescriptionData, passportData] = await Promise.all([
+          readAllPrescriptionNFTs(prescriptionContractAddress),
+          readAllMedicalPassportNFTs(passportContractAddress)
+        ]);
+
+        const found = prescriptionData.find((p) => p.tokenId === numericId) || null;
         setPrescription(found);
 
         if (found) {
+          // Find matching passport by owner address (only if it has a valid name)
+          const ownerKey = found.owner?.toLowerCase();
+          const matchingPassport = ownerKey
+            ? (passportData as MedicalPassportNFT[]).find(
+                (p) => p.owner?.toLowerCase() === ownerKey && isValidName(p.name)
+              ) || null
+            : null;
+          setPassport(matchingPassport);
+
           addEvent("Prescription loaded");
+          if (matchingPassport) {
+            addEvent("Patient passport loaded");
+          }
         }
       } catch (err) {
         console.error("Failed to fetch prescription NFTs:", err);
@@ -67,7 +114,7 @@ export default function PrescriptionWorkspacePage() {
     if (!Number.isNaN(numericId)) {
       load();
     }
-  }, [contractAddress, numericId]);
+  }, [prescriptionContractAddress, passportContractAddress, numericId]);
 
   const addEvent = (label: string) => {
     setTimeline((prev) => [
@@ -239,12 +286,45 @@ export default function PrescriptionWorkspacePage() {
           <h3 className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
             Patient (medical passport)
           </h3>
-          <p className="text-sm font-medium text-slate-50">John Doe</p>
-          <p className="text-xs text-slate-400">DOB: 01/15/1979</p>
-          <p className="text-xs text-slate-400">Phone: (555) 123-4567</p>
-          <p className="text-xs text-slate-500 mt-2">
-            Wallet: {prescription.owner}
-          </p>
+          {passport ? (
+            <>
+              <p className="text-sm font-medium text-slate-50">
+                {passport.name}
+              </p>
+              {passport.dateOfBirth && (
+                <p className="text-xs text-slate-400">
+                  DOB: {passport.dateOfBirth}
+                </p>
+              )}
+              {passport.contactInfo && (
+                <p className="text-xs text-slate-400">
+                  Contact: {passport.contactInfo}
+                </p>
+              )}
+              {passport.allergies && passport.allergies.trim() !== "" && (
+                <div className="mt-2 p-2 rounded-lg bg-red-900/20 border border-red-800/50">
+                  <p className="text-[10px] font-semibold text-red-300 mb-1">
+                    ⚠️ Allergies
+                  </p>
+                  <p className="text-[10px] text-red-200">
+                    {passport.allergies}
+                  </p>
+                </div>
+              )}
+              <p className="text-xs text-slate-500 mt-2">
+                Wallet: {prescription.owner}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-slate-50">
+                No passport found
+              </p>
+              <p className="text-xs text-slate-400">
+                Wallet: {prescription.owner}
+              </p>
+            </>
+          )}
         </div>
       </div>
 

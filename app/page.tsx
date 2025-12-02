@@ -1,7 +1,6 @@
-// app/page.tsx
-import { redirect } from "next/navigation";
 "use client";
 
+// app/page.tsx
 import { useState, useEffect } from "react";
 import { readAllPrescriptionNFTs } from "@/lib/prescriptions";
 import { readAllMedicalPassportNFTs } from "@/lib/passports";
@@ -15,16 +14,46 @@ type PrescriptionNFT = {
   metadata: any;
 };
 
+type MedicalPassportNFT = {
+  tokenId: number;
+  owner: string;
+  name: string;
+  contactInfo: string;
+  dateOfBirth: string;
+  socialSecurityNumber: string;
+  medicalHistory: string;
+  pastDiagnoses: string;
+  familyHistory: string;
+  allergies: string;
+  currentMedications: string;
+  treatmentRegimens: string;
+  vitalSigns: string;
+  metadata: any;
+};
+
+type PrescriptionWithPassport = PrescriptionNFT & {
+  passport: MedicalPassportNFT | null;
+};
+
+// Helper function to check if a name is valid
+function isValidName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const normalized = name.trim().toLowerCase();
+  return normalized !== "" && 
+         normalized !== "n/a" && 
+         normalized !== "na" &&
+         normalized !== "unknown" &&
+         normalized !== "unknown patient";
+}
+
 export default function Home() {
-  // Send anyone hitting "/" straight to the pharmacy overview
-  redirect("/pharmacy");
   const prescriptionContractAddress = "0x51fCc50146E3920f0ce2a91b59B631235Aa52dd3";
   const passportContractAddress = "0xb8Df87631dBB64D28a4c015b23540F1ce02445e2";
   const [loading, setLoading] = useState(true);
-  const [nfts, setNfts] = useState<PrescriptionNFT[]>([]);
-  const [passports, setPassports] = useState<any[]>([]);
+  const [nfts, setNfts] = useState<PrescriptionWithPassport[]>([]);
+  const [passports, setPassports] = useState<MedicalPassportNFT[]>([]);
   const [expandedTokenId, setExpandedTokenId] = useState<number | null>(null);
-  const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionNFT | null>(null);
+  const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionWithPassport | null>(null);
   const [patientStatuses, setPatientStatuses] = useState<Record<number, string>>({});
   const [pharmacistInstructions, setPharmacistInstructions] = useState<Record<number, string>>({});
 
@@ -36,30 +65,34 @@ export default function Home() {
           readAllPrescriptionNFTs(prescriptionContractAddress),
           readAllMedicalPassportNFTs(passportContractAddress)
         ]);
-        setPassports(passportData);
+        setPassports(passportData as MedicalPassportNFT[]);
         
         // Create a map of passport owner addresses to arrays of passports (multiple passports can have same owner)
-        const passportMapByOwner = new Map<string, any[]>();
+        const passportMapByOwner = new Map<string, MedicalPassportNFT[]>();
         passportData.forEach((p: any) => {
           const ownerKey = p.owner?.toLowerCase();
           if (ownerKey) {
             if (!passportMapByOwner.has(ownerKey)) {
               passportMapByOwner.set(ownerKey, []);
             }
-            passportMapByOwner.get(ownerKey)!.push(p);
+            passportMapByOwner.get(ownerKey)!.push(p as MedicalPassportNFT);
           }
         });
         
-        // Helper function to find the best matching passport (prefer one with valid name)
-        const findBestMatchingPassport = (ownerAddress: string): any | null => {
+        // Helper function to find the best matching passport for a prescription
+        // Matches by owner address: prescription.owner === passport.owner
+        // Only returns passports with valid names
+        const findBestMatchingPassport = (ownerAddress: string): MedicalPassportNFT | null => {
           const ownerKey = ownerAddress?.toLowerCase();
           if (!ownerKey) return null;
           
           const matchingPassports = passportMapByOwner.get(ownerKey) || [];
           
-          // First, try to find a passport with a valid name
+          if (matchingPassports.length === 0) return null;
+          
+          // Find passport with valid name
           const passportWithName = matchingPassports.find(
-            (p: any) => p.name && p.name.trim() !== ""
+            (p) => isValidName(p.name)
           );
           
           if (passportWithName) {
@@ -70,13 +103,20 @@ export default function Home() {
           return null;
         };
         
-        // Filter prescriptions to only show those with a matching passport that has a valid name
+        // Pair each prescription with its matching passport
         // Match by owner address: prescription.owner (Patient ID - 0x address) === passport.owner (0x address)
-        const filteredPrescriptions = prescriptionData.filter((prescription: PrescriptionNFT) => {
+        const prescriptionsWithPassports: PrescriptionWithPassport[] = prescriptionData.map((prescription: PrescriptionNFT) => {
           const matchingPassport = findBestMatchingPassport(prescription.owner);
-          // Only include if we found a matching passport with a valid name
-          return matchingPassport !== null;
+          return {
+            ...prescription,
+            passport: matchingPassport
+          };
         });
+        
+        // Filter to only show prescriptions with matching passports that have valid names
+        const filteredPrescriptions = prescriptionsWithPassports.filter(
+          (prescription) => prescription.passport !== null && isValidName(prescription.passport.name)
+        );
         
         setNfts(filteredPrescriptions);
         console.log("Loaded passports:", passportData);
@@ -99,7 +139,7 @@ export default function Home() {
     }
   };
 
-  const openPrescriptionModal = (nft: PrescriptionNFT) => {
+  const openPrescriptionModal = (nft: PrescriptionWithPassport) => {
     setSelectedPrescription(nft);
   };
 
@@ -132,30 +172,6 @@ export default function Home() {
     }));
   };
 
-  // Helper function to find matching passport for a prescription
-  // Matches by owner address: prescription.owner (Patient ID - 0x address) === passport.owner (0x address)
-  // Prefers passports with valid names
-  const getMatchingPassport = (prescription: PrescriptionNFT) => {
-    const ownerKey = prescription.owner?.toLowerCase();
-    if (!ownerKey) return null;
-    
-    // Find all passports with matching owner
-    const matchingPassports = passports.filter((p: any) => 
-      p.owner?.toLowerCase() === ownerKey
-    );
-    
-    // First, try to find a passport with a valid name
-    const passportWithName = matchingPassports.find(
-      (p: any) => p.name && p.name.trim() !== ""
-    );
-    
-    if (passportWithName) {
-      return passportWithName;
-    }
-    
-    // If no passport with valid name, return null
-    return null;
-  };
 
   // Helper function to calculate age from date of birth
   const calculateAge = (dateOfBirth: string): number | null => {
@@ -206,7 +222,7 @@ export default function Home() {
               return getPriority(statusA) - getPriority(statusB);
             }).map((nft) => {
               const status = patientStatuses[nft.tokenId];
-              const matchingPassport = getMatchingPassport(nft);
+              const matchingPassport = nft.passport;
               const age = matchingPassport ? calculateAge(matchingPassport.dateOfBirth) : null;
               
               const getCardStyles = () => {
@@ -240,9 +256,14 @@ export default function Home() {
                   onClick={() => toggleExpand(nft.tokenId)}
                   className={`w-full px-4 py-3 text-left ${getButtonStyles()} transition-colors flex items-center justify-between`}
                 >
-                  <span className={`font-mono text-sm ${getTextStyles()}`}>
-                    Patient ID: {nft.owner}
-                  </span>
+                  <div className="flex flex-col items-start">
+                    <span className={`font-semibold text-base ${getTextStyles()}`}>
+                      {matchingPassport?.name}
+                    </span>
+                    <span className={`font-mono text-xs ${status === "Completed" ? "text-zinc-400 dark:text-zinc-500" : "text-zinc-500 dark:text-zinc-400"}`}>
+                      ID: {nft.owner.slice(0, 6)}...{nft.owner.slice(-4)}
+                    </span>
+                  </div>
                   <span className={status === "Completed" ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-400"}>
                     {expandedTokenId === nft.tokenId ? "−" : "+"}
                   </span>
@@ -250,6 +271,7 @@ export default function Home() {
                 {expandedTokenId === nft.tokenId && (
                   <div className={`px-4 pb-4 pt-2 border-t ${status === "Completed" ? "border-zinc-200 dark:border-zinc-800" : "border-zinc-300 dark:border-zinc-700"}`}>
                     <div className="space-y-4">
+                      {/* Patient Information Section */}
                       <div className="space-y-2 text-sm">
                         <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Patient Information</h3>
                         <div>
@@ -261,7 +283,7 @@ export default function Home() {
                         {age !== null && (
                           <div>
                             <span className="font-medium text-black dark:text-zinc-50">Age: </span>
-                            <span className="text-zinc-600 dark:text-zinc-400">{age}</span>
+                            <span className="text-zinc-600 dark:text-zinc-400">{age} years</span>
                           </div>
                         )}
                         <div>
@@ -274,6 +296,12 @@ export default function Home() {
                           <span className="font-medium text-black dark:text-zinc-50">Contact Info: </span>
                           <span className="text-zinc-600 dark:text-zinc-400">
                             {matchingPassport?.contactInfo || "N/A"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-medium text-black dark:text-zinc-50">Patient ID: </span>
+                          <span className="text-zinc-600 dark:text-zinc-400 font-mono text-xs">
+                            {nft.owner}
                           </span>
                         </div>
                         {patientStatuses[nft.tokenId] && (
@@ -290,6 +318,66 @@ export default function Home() {
                             </span>
                           </div>
                         )}
+                      </div>
+
+                      {/* Medical Information Section */}
+                      {matchingPassport && (
+                        <div className="space-y-2 text-sm border-t border-zinc-200 dark:border-zinc-700 pt-3">
+                          <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Medical Information</h3>
+                          {matchingPassport.allergies && matchingPassport.allergies.trim() !== "" && (
+                            <div className="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                              <span className="font-semibold text-red-900 dark:text-red-200">⚠️ Allergies: </span>
+                              <span className="text-red-800 dark:text-red-300">{matchingPassport.allergies}</span>
+                            </div>
+                          )}
+                          {matchingPassport.currentMedications && matchingPassport.currentMedications.trim() !== "" && (
+                            <div>
+                              <span className="font-medium text-black dark:text-zinc-50">Current Medications: </span>
+                              <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.currentMedications}</span>
+                            </div>
+                          )}
+                          {matchingPassport.medicalHistory && matchingPassport.medicalHistory.trim() !== "" && (
+                            <div>
+                              <span className="font-medium text-black dark:text-zinc-50">Medical History: </span>
+                              <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.medicalHistory}</span>
+                            </div>
+                          )}
+                          {matchingPassport.pastDiagnoses && matchingPassport.pastDiagnoses.trim() !== "" && (
+                            <div>
+                              <span className="font-medium text-black dark:text-zinc-50">Past Diagnoses: </span>
+                              <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.pastDiagnoses}</span>
+                            </div>
+                          )}
+                          {matchingPassport.familyHistory && matchingPassport.familyHistory.trim() !== "" && (
+                            <div>
+                              <span className="font-medium text-black dark:text-zinc-50">Family History: </span>
+                              <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.familyHistory}</span>
+                            </div>
+                          )}
+                          {matchingPassport.vitalSigns && matchingPassport.vitalSigns.trim() !== "" && (
+                            <div>
+                              <span className="font-medium text-black dark:text-zinc-50">Vital Signs: </span>
+                              <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.vitalSigns}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Prescription Information Section */}
+                      <div className="space-y-2 text-sm border-t border-zinc-200 dark:border-zinc-700 pt-3">
+                        <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Prescription Details</h3>
+                        <div>
+                          <span className="font-medium text-black dark:text-zinc-50">Medication: </span>
+                          <span className="text-zinc-600 dark:text-zinc-400 font-semibold">{nft.medication}</span>
+                        </div>
+                        <div>
+                          <span className="font-medium text-black dark:text-zinc-50">Dosage: </span>
+                          <span className="text-zinc-600 dark:text-zinc-400">{nft.dosage}</span>
+                        </div>
+                        <div>
+                          <span className="font-medium text-black dark:text-zinc-50">Instructions: </span>
+                          <span className="text-zinc-600 dark:text-zinc-400">{nft.instructions}</span>
+                        </div>
                       </div>
                       {pharmacistInstructions[nft.tokenId] && patientStatuses[nft.tokenId] !== "Completed" && (
                         <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
@@ -337,27 +425,48 @@ export default function Home() {
                   ×
                 </button>
               </div>
-              <div className="space-y-3 text-sm">
-                <div>
-                  <span className="font-medium text-black dark:text-zinc-50">Token ID: </span>
-                  <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription.tokenId}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-black dark:text-zinc-50">Medication: </span>
-                  <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription.medication}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-black dark:text-zinc-50">Dosage: </span>
-                  <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription.dosage}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-black dark:text-zinc-50">Instructions: </span>
-                  <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription.instructions}</span>
+              <div className="space-y-4 text-sm">
+                {/* Patient Information in Modal */}
+                {selectedPrescription!.passport && (
+                  <div className="space-y-2 pb-3 border-b border-zinc-200 dark:border-zinc-700">
+                    <h3 className="font-semibold text-black dark:text-zinc-50 mb-2">Patient Information</h3>
+                    <div>
+                      <span className="font-medium text-black dark:text-zinc-50">Name: </span>
+                      <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription!.passport!.name}</span>
+                    </div>
+                    {selectedPrescription!.passport!.allergies && selectedPrescription!.passport!.allergies.trim() !== "" && (
+                      <div className="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md mt-2">
+                        <span className="font-semibold text-red-900 dark:text-red-200">⚠️ Allergies: </span>
+                        <span className="text-red-800 dark:text-red-300">{selectedPrescription!.passport!.allergies}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Prescription Details */}
+                <div className="space-y-2">
+                  <h3 className="font-semibold text-black dark:text-zinc-50 mb-2">Prescription Details</h3>
+                  <div>
+                    <span className="font-medium text-black dark:text-zinc-50">Token ID: </span>
+                    <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription!.tokenId}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-black dark:text-zinc-50">Medication: </span>
+                    <span className="text-zinc-600 dark:text-zinc-400 font-semibold">{selectedPrescription!.medication}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-black dark:text-zinc-50">Dosage: </span>
+                    <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription!.dosage}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-black dark:text-zinc-50">Instructions: </span>
+                    <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription!.instructions}</span>
+                  </div>
                 </div>
               </div>
               <div className="mt-6 space-y-2">
                 <button
-                  onClick={() => handleFillPrescription(selectedPrescription.tokenId)}
+                  onClick={() => handleFillPrescription(selectedPrescription!.tokenId)}
                   className="w-full px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-md font-medium hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
                 >
                   Fill Prescription
