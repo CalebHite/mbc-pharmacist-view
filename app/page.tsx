@@ -91,11 +91,50 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-2">
-            {nfts.map((nft) => (
-              <div key={nft.tokenId} className="border border-zinc-300 dark:border-zinc-700 rounded-md">
+            {[...nfts].sort((a, b) => {
+              const statusA = patientStatuses[a.tokenId] || "";
+              const statusB = patientStatuses[b.tokenId] || "";
+              
+              // Priority: Pending (1) > No status (2) > Completed (3)
+              const getPriority = (status: string) => {
+                if (status === "Pending") return 1;
+                if (status === "Completed") return 3;
+                return 2;
+              };
+              
+              return getPriority(statusA) - getPriority(statusB);
+            }).map((nft) => {
+              const status = patientStatuses[nft.tokenId];
+              const getCardStyles = () => {
+                if (status === "Pending") {
+                  return "border-2 border-orange-500 dark:border-orange-400 bg-orange-50 dark:bg-orange-950/30 shadow-md";
+                } else if (status === "Completed") {
+                  return "border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 opacity-60";
+                }
+                return "border-2 border-blue-400 dark:border-blue-500 bg-blue-50/40 dark:bg-blue-950/20 shadow-sm";
+              };
+
+              const getButtonStyles = () => {
+                if (status === "Pending") {
+                  return "hover:bg-orange-100 dark:hover:bg-orange-900/30 font-semibold";
+                } else if (status === "Completed") {
+                  return "hover:bg-zinc-100 dark:hover:bg-zinc-800/30 opacity-70";
+                }
+                return "hover:bg-blue-100 dark:hover:bg-blue-900/30 font-medium";
+              };
+
+              const getTextStyles = () => {
+                if (status === "Completed") {
+                  return "text-zinc-500 dark:text-zinc-500";
+                }
+                return "text-black dark:text-zinc-50";
+              };
+
+              return (
+              <div key={nft.tokenId} className={`${getCardStyles()} rounded-md transition-colors`}>
                 <button
                   onClick={() => toggleExpand(nft.tokenId)}
-                  className="w-full px-4 py-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors flex items-center justify-between"
+                  className={`w-full px-4 py-3 text-left ${getButtonStyles()} transition-colors flex items-center justify-between`}
                 >
                   <span className="font-mono text-sm text-black dark:text-zinc-50">
                     Patient ID: {nft.owner}
@@ -144,20 +183,21 @@ export default function Home() {
                           </div>
                         )}
                       </div>
-                      {pharmacistInstructions[nft.tokenId] && (
+                      {pharmacistInstructions[nft.tokenId] && patientStatuses[nft.tokenId] !== "Completed" && (
                         <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
                           <h4 className="font-semibold text-blue-900 dark:text-blue-200 mb-2 text-sm">Pharmacist Instructions:</h4>
                           <p className="text-sm text-blue-800 dark:text-blue-300">{pharmacistInstructions[nft.tokenId]}</p>
                         </div>
                       )}
-                      {patientStatuses[nft.tokenId] === "Pending" ? (
+                      {patientStatuses[nft.tokenId] === "Pending" && (
                         <button
                           onClick={() => handleFinishPrescription(nft.tokenId)}
                           className="w-full px-4 py-2 bg-green-600 dark:bg-green-500 text-white rounded-md font-medium hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
                         >
                           Finish Prescription
                         </button>
-                      ) : (
+                      )}
+                      {patientStatuses[nft.tokenId] !== "Pending" && patientStatuses[nft.tokenId] !== "Completed" && (
                         <button
                           onClick={() => openPrescriptionModal(nft)}
                           className="w-full px-4 py-2 bg-black dark:bg-zinc-50 text-white dark:text-black rounded-md font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"
@@ -169,7 +209,8 @@ export default function Home() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
