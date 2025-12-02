@@ -16,45 +16,44 @@ export async function readPrescriptionNFT(
 
   const nft = new ethers.Contract(contractAddress, abi, provider);
 
-  console.log(`\nReading NFT ${tokenId} from contract ${contractAddress}...\n`);
-
   // Check existence
   try {
     const owner = await nft.ownerOf(tokenId);
-    console.log("Owner:", owner);
-  } catch (err) {
-    console.error("❌ Token does not exist or ownerOf reverted.");
-    return;
-  }
-
-  // Read struct
-  try {
+    
+    // Read struct
     const p = await nft.prescriptions(tokenId);
-    console.log("\nPrescription struct:");
-    console.log("Medication:", p.medication);
-    console.log("Dosage:", p.dosage);
-    console.log("Instructions:", p.instructions);
-  } catch (err) {
-    console.error("❌ prescriptions() call failed:", err);
-  }
-
-  // Read tokenURI
-  try {
+    
+    // Read tokenURI
     const uri = await nft.tokenURI(tokenId);
-    console.log("\ntokenURI:", uri);
-
+    let metadata = null;
+    
     // Decode data:application/json
     if (uri.startsWith("data:application/json,")) {
-      const json = JSON.parse(uri.replace("data:application/json,", ""));
-      console.log("\nDecoded JSON Metadata:", json);
+      metadata = JSON.parse(uri.replace("data:application/json,", ""));
     }
+
+    return {
+      tokenId,
+      owner,
+      medication: p.medication,
+      dosage: p.dosage,
+      instructions: p.instructions,
+      metadata
+    };
   } catch (err) {
-    console.error("❌ tokenURI() call failed:", err);
+    return null;
   }
 }
 
-// Example call:
-readPrescriptionNFT(
-  "0x51fCc50146E3920f0ce2a91b59B631235Aa52dd3", // your contract
-  1                                              // tokenId
-);
+export async function readAllPrescriptionNFTs(contractAddress: string) {
+  const results = [];
+  
+  for (let tokenId = 1; tokenId <= 10; tokenId++) {
+    const data = await readPrescriptionNFT(contractAddress, tokenId);
+    if (data) {
+      results.push(data);
+    }
+  }
+  
+  return results;
+}

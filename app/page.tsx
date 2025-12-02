@@ -1,116 +1,224 @@
 "use client";
 
-import { useState } from "react";
-import { readPrescriptionNFT } from "@/lib/prescriptions";
+import { useState, useEffect } from "react";
+import { readAllPrescriptionNFTs } from "@/lib/prescriptions";
+
+type PrescriptionNFT = {
+  tokenId: number;
+  owner: string;
+  medication: string;
+  dosage: string;
+  instructions: string;
+  metadata: any;
+};
 
 export default function Home() {
-  const [rpcUrl, setRpcUrl] = useState("https://mainnet.base.org");
-  const [contractAddress, setContractAddress] = useState("0xYourContractAddress");
-  const [tokenId, setTokenId] = useState("1");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
+  const contractAddress = "0x51fCc50146E3920f0ce2a91b59B631235Aa52dd3";
+  const [loading, setLoading] = useState(true);
+  const [nfts, setNfts] = useState<PrescriptionNFT[]>([]);
+  const [expandedTokenId, setExpandedTokenId] = useState<number | null>(null);
+  const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionNFT | null>(null);
+  const [patientStatuses, setPatientStatuses] = useState<Record<number, string>>({});
+  const [pharmacistInstructions, setPharmacistInstructions] = useState<Record<number, string>>({});
 
-  const handleFetch = async () => {
-    setLoading(true);
-    setError(null);
-    setResult(null);
+  useEffect(() => {
+    const loadNFTs = async () => {
+      setLoading(true);
+      try {
+        const data = await readAllPrescriptionNFTs(contractAddress);
+        setNfts(data);
+      } catch (err: any) {
+        console.error("Failed to fetch prescription NFTs:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    try {
-        const data = await readPrescriptionNFT(
-        contractAddress,
-        parseInt(tokenId)
-      );
-      setResult(data as any);
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch prescription NFT");
-    } finally {
-      setLoading(false);
+    loadNFTs();
+  }, []);
+
+  const toggleExpand = (tokenId: number) => {
+    if (expandedTokenId === tokenId) {
+      setExpandedTokenId(null);
+    } else {
+      setExpandedTokenId(tokenId);
     }
+  };
+
+  const openPrescriptionModal = (nft: PrescriptionNFT) => {
+    setSelectedPrescription(nft);
+  };
+
+  const closePrescriptionModal = () => {
+    setSelectedPrescription(null);
+  };
+
+  const handleFillPrescription = (tokenId: number) => {
+    setPatientStatuses((prev) => ({
+      ...prev,
+      [tokenId]: "Pending"
+    }));
+    
+    const prescription = nfts.find(nft => nft.tokenId === tokenId);
+    if (prescription) {
+      const instructions = `Fill prescription for ${prescription.medication} (${prescription.dosage}). Patient instructions: ${prescription.instructions}. Please verify medication availability and prepare for dispensing.`;
+      setPharmacistInstructions((prev) => ({
+        ...prev,
+        [tokenId]: instructions
+      }));
+    }
+    
+    closePrescriptionModal();
+  };
+
+  const handleFinishPrescription = (tokenId: number) => {
+    setPatientStatuses((prev) => ({
+      ...prev,
+      [tokenId]: "Completed"
+    }));
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black p-8">
       <main className="w-full max-w-2xl bg-white dark:bg-black rounded-lg shadow-lg p-8">
         <h1 className="text-3xl font-semibold mb-6 text-black dark:text-zinc-50">
-          Prescription NFT Viewer
+          Dashboard
         </h1>
 
-        <div className="space-y-4 mb-6">
-          <div>
-            <label className="block text-sm font-medium mb-2 text-black dark:text-zinc-50">
-              RPC URL
-            </label>
-            <input
-              type="text"
-              value={rpcUrl}
-              onChange={(e) => setRpcUrl(e.target.value)}
-              className="w-full px-4 py-2 border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-black dark:text-zinc-50"
-            />
+        {loading ? (
+          <div className="text-center text-zinc-600 dark:text-zinc-400">
+            Loading...
           </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2 text-black dark:text-zinc-50">
-              Contract Address
-            </label>
-            <input
-              type="text"
-              value={contractAddress}
-              onChange={(e) => setContractAddress(e.target.value)}
-              className="w-full px-4 py-2 border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-black dark:text-zinc-50"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2 text-black dark:text-zinc-50">
-              Token ID
-            </label>
-            <input
-              type="number"
-              value={tokenId}
-              onChange={(e) => setTokenId(e.target.value)}
-              className="w-full px-4 py-2 border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-black dark:text-zinc-50"
-            />
-          </div>
-
-          <button
-            onClick={handleFetch}
-            disabled={loading}
-            className="w-full px-4 py-2 bg-black dark:bg-zinc-50 text-white dark:text-black rounded-md font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? "Loading..." : "Fetch Prescription NFT"}
-          </button>
-        </div>
-
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
-            <p className="text-red-600 dark:text-red-400">Error: {error}</p>
+        ) : (
+          <div className="space-y-2">
+            {nfts.map((nft) => (
+              <div key={nft.tokenId} className="border border-zinc-300 dark:border-zinc-700 rounded-md">
+                <button
+                  onClick={() => toggleExpand(nft.tokenId)}
+                  className="w-full px-4 py-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors flex items-center justify-between"
+                >
+                  <span className="font-mono text-sm text-black dark:text-zinc-50">
+                    Patient ID: {nft.owner}
+                  </span>
+                  <span className="text-zinc-400">
+                    {expandedTokenId === nft.tokenId ? "−" : "+"}
+                  </span>
+                </button>
+                {expandedTokenId === nft.tokenId && (
+                  <div className="px-4 pb-4 pt-2 border-t border-zinc-300 dark:border-zinc-700">
+                    <div className="space-y-4">
+                      <div className="space-y-2 text-sm">
+                        <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Patient Information</h3>
+                        <div>
+                          <span className="font-medium text-black dark:text-zinc-50">Name: </span>
+                          <span className="text-zinc-600 dark:text-zinc-400">John Doe</span>
+                        </div>
+                        <div>
+                          <span className="font-medium text-black dark:text-zinc-50">Age: </span>
+                          <span className="text-zinc-600 dark:text-zinc-400">45</span>
+                        </div>
+                        <div>
+                          <span className="font-medium text-black dark:text-zinc-50">Date of Birth: </span>
+                          <span className="text-zinc-600 dark:text-zinc-400">01/15/1979</span>
+                        </div>
+                        <div>
+                          <span className="font-medium text-black dark:text-zinc-50">Address: </span>
+                          <span className="text-zinc-600 dark:text-zinc-400">123 Main St, City, State 12345</span>
+                        </div>
+                        <div>
+                          <span className="font-medium text-black dark:text-zinc-50">Phone: </span>
+                          <span className="text-zinc-600 dark:text-zinc-400">(555) 123-4567</span>
+                        </div>
+                        {patientStatuses[nft.tokenId] && (
+                          <div>
+                            <span className="font-medium text-black dark:text-zinc-50">Status: </span>
+                            <span className={`font-semibold ${
+                              patientStatuses[nft.tokenId] === "Pending" 
+                                ? "text-orange-600 dark:text-orange-400" 
+                                : patientStatuses[nft.tokenId] === "Completed"
+                                ? "text-green-600 dark:text-green-400"
+                                : "text-zinc-600 dark:text-zinc-400"
+                            }`}>
+                              {patientStatuses[nft.tokenId]}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      {pharmacistInstructions[nft.tokenId] && (
+                        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
+                          <h4 className="font-semibold text-blue-900 dark:text-blue-200 mb-2 text-sm">Pharmacist Instructions:</h4>
+                          <p className="text-sm text-blue-800 dark:text-blue-300">{pharmacistInstructions[nft.tokenId]}</p>
+                        </div>
+                      )}
+                      {patientStatuses[nft.tokenId] === "Pending" ? (
+                        <button
+                          onClick={() => handleFinishPrescription(nft.tokenId)}
+                          className="w-full px-4 py-2 bg-green-600 dark:bg-green-500 text-white rounded-md font-medium hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
+                        >
+                          Finish Prescription
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => openPrescriptionModal(nft)}
+                          className="w-full px-4 py-2 bg-black dark:bg-zinc-50 text-white dark:text-black rounded-md font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"
+                        >
+                          Review Prescription
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
-        {result && (
-          <div className="mt-6 p-4 bg-zinc-50 dark:bg-zinc-900 rounded-md">
-            <h2 className="text-xl font-semibold mb-4 text-black dark:text-zinc-50">
-              Prescription Data
-            </h2>
-            <div className="space-y-2">
-              <div>
-                <span className="font-medium text-black dark:text-zinc-50">Medication: </span>
-                <span className="text-zinc-600 dark:text-zinc-400">{result.medication}</span>
+        {/* Prescription Modal */}
+        {selectedPrescription && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-xl max-w-md w-full p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-semibold text-black dark:text-zinc-50">
+                  Prescription Details
+                </h2>
+                <button
+                  onClick={closePrescriptionModal}
+                  className="text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 text-2xl"
+                >
+                  ×
+                </button>
               </div>
-              <div>
-                <span className="font-medium text-black dark:text-zinc-50">Dosage: </span>
-                <span className="text-zinc-600 dark:text-zinc-400">{result.dosage}</span>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <span className="font-medium text-black dark:text-zinc-50">Token ID: </span>
+                  <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription.tokenId}</span>
+                </div>
+                <div>
+                  <span className="font-medium text-black dark:text-zinc-50">Medication: </span>
+                  <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription.medication}</span>
+                </div>
+                <div>
+                  <span className="font-medium text-black dark:text-zinc-50">Dosage: </span>
+                  <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription.dosage}</span>
+                </div>
+                <div>
+                  <span className="font-medium text-black dark:text-zinc-50">Instructions: </span>
+                  <span className="text-zinc-600 dark:text-zinc-400">{selectedPrescription.instructions}</span>
+                </div>
               </div>
-              <div>
-                <span className="font-medium text-black dark:text-zinc-50">Instructions: </span>
-                <span className="text-zinc-600 dark:text-zinc-400">{result.instructions}</span>
-              </div>
-              <div className="mt-4">
-                <span className="font-medium text-black dark:text-zinc-50">Metadata: </span>
-                <pre className="mt-2 p-3 bg-white dark:bg-zinc-800 rounded text-sm text-zinc-600 dark:text-zinc-400 overflow-auto">
-                  {JSON.stringify(result.metadata, null, 2)}
-                </pre>
+              <div className="mt-6 space-y-2">
+                <button
+                  onClick={() => handleFillPrescription(selectedPrescription.tokenId)}
+                  className="w-full px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-md font-medium hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
+                >
+                  Fill Prescription
+                </button>
+                <button
+                  onClick={closePrescriptionModal}
+                  className="w-full px-4 py-2 bg-black dark:bg-zinc-50 text-white dark:text-black rounded-md font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>
