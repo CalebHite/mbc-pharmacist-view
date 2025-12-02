@@ -39,11 +39,11 @@ type PrescriptionWithPassport = PrescriptionNFT & {
 function isValidName(name: string | null | undefined): boolean {
   if (!name) return false;
   const normalized = name.trim().toLowerCase();
-  return normalized !== "" && 
-         normalized !== "n/a" && 
-         normalized !== "na" &&
-         normalized !== "unknown" &&
-         normalized !== "unknown patient";
+  return normalized !== "" &&
+    normalized !== "n/a" &&
+    normalized !== "na" &&
+    normalized !== "unknown" &&
+    normalized !== "unknown patient";
 }
 
 export default function Home() {
@@ -66,7 +66,7 @@ export default function Home() {
           readAllMedicalPassportNFTs(passportContractAddress)
         ]);
         setPassports(passportData as MedicalPassportNFT[]);
-        
+
         // Create a map of passport owner addresses to arrays of passports (multiple passports can have same owner)
         const passportMapByOwner = new Map<string, MedicalPassportNFT[]>();
         passportData.forEach((p: any) => {
@@ -78,31 +78,31 @@ export default function Home() {
             passportMapByOwner.get(ownerKey)!.push(p as MedicalPassportNFT);
           }
         });
-        
+
         // Helper function to find the best matching passport for a prescription
         // Matches by owner address: prescription.owner === passport.owner
         // Only returns passports with valid names
         const findBestMatchingPassport = (ownerAddress: string): MedicalPassportNFT | null => {
           const ownerKey = ownerAddress?.toLowerCase();
           if (!ownerKey) return null;
-          
+
           const matchingPassports = passportMapByOwner.get(ownerKey) || [];
-          
+
           if (matchingPassports.length === 0) return null;
-          
+
           // Find passport with valid name
           const passportWithName = matchingPassports.find(
             (p) => isValidName(p.name)
           );
-          
+
           if (passportWithName) {
             return passportWithName;
           }
-          
+
           // If no passport with valid name, return null (don't match)
           return null;
         };
-        
+
         // Pair each prescription with its matching passport
         // Match by owner address: prescription.owner (Patient ID - 0x address) === passport.owner (0x address)
         const prescriptionsWithPassports: PrescriptionWithPassport[] = prescriptionData.map((prescription: PrescriptionNFT) => {
@@ -112,12 +112,12 @@ export default function Home() {
             passport: matchingPassport
           };
         });
-        
+
         // Filter to only show prescriptions with matching passports that have valid names
         const filteredPrescriptions = prescriptionsWithPassports.filter(
           (prescription) => prescription.passport !== null && isValidName(prescription.passport.name)
         );
-        
+
         setNfts(filteredPrescriptions);
         console.log("Loaded passports:", passportData);
         console.log("Filtered prescriptions count:", filteredPrescriptions.length);
@@ -152,7 +152,7 @@ export default function Home() {
       ...prev,
       [tokenId]: "Pending"
     }));
-    
+
     const prescription = nfts.find(nft => nft.tokenId === tokenId);
     if (prescription) {
       const instructions = `Fill prescription for ${prescription.medication} (${prescription.dosage}). Patient instructions: ${prescription.instructions}. Please verify medication availability and prepare for dispensing.`;
@@ -161,7 +161,7 @@ export default function Home() {
         [tokenId]: instructions
       }));
     }
-    
+
     closePrescriptionModal();
   };
 
@@ -176,19 +176,19 @@ export default function Home() {
   // Helper function to calculate age from date of birth
   const calculateAge = (dateOfBirth: string): number | null => {
     if (!dateOfBirth || dateOfBirth.trim() === "") return null;
-    
+
     try {
       const dob = new Date(dateOfBirth);
       if (isNaN(dob.getTime())) return null;
-      
+
       const today = new Date();
       let age = today.getFullYear() - dob.getFullYear();
       const monthDiff = today.getMonth() - dob.getMonth();
-      
+
       if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
         age--;
       }
-      
+
       return age;
     } catch {
       return null;
@@ -196,8 +196,9 @@ export default function Home() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black p-8">
-      <main className="w-full max-w-2xl bg-white dark:bg-black rounded-lg shadow-lg p-8">
+    <div className="min-h-screen bg-zinc-50 font-sans dark:bg-black p-8">
+      <div className="max-w-2xl mx-auto space-y-8">
+      <main className="w-full bg-white dark:bg-black rounded-lg shadow-lg p-8">
         <h1 className="text-3xl font-semibold mb-6 text-black dark:text-zinc-50">
           Dashboard
         </h1>
@@ -211,20 +212,20 @@ export default function Home() {
             {[...nfts].sort((a, b) => {
               const statusA = patientStatuses[a.tokenId] || "";
               const statusB = patientStatuses[b.tokenId] || "";
-              
+
               // Priority: Pending (1) > No status (2) > Completed (3)
               const getPriority = (status: string) => {
                 if (status === "Pending") return 1;
                 if (status === "Completed") return 3;
                 return 2;
               };
-              
+
               return getPriority(statusA) - getPriority(statusB);
             }).map((nft) => {
               const status = patientStatuses[nft.tokenId];
               const matchingPassport = nft.passport;
               const age = matchingPassport ? calculateAge(matchingPassport.dateOfBirth) : null;
-              
+
               const getCardStyles = () => {
                 if (status === "Pending") {
                   return "border-2 border-orange-500 dark:border-orange-400 bg-orange-50 dark:bg-orange-950/30 shadow-md";
@@ -251,160 +252,159 @@ export default function Home() {
               };
 
               return (
-              <div key={nft.tokenId} className={`${getCardStyles()} rounded-md transition-colors`}>
-                <button
-                  onClick={() => toggleExpand(nft.tokenId)}
-                  className={`w-full px-4 py-3 text-left ${getButtonStyles()} transition-colors flex items-center justify-between`}
-                >
-                  <div className="flex flex-col items-start">
-                    <span className={`font-semibold text-base ${getTextStyles()}`}>
-                      {matchingPassport?.name}
+                <div key={nft.tokenId} className={`${getCardStyles()} rounded-md transition-colors`}>
+                  <button
+                    onClick={() => toggleExpand(nft.tokenId)}
+                    className={`w-full px-4 py-3 text-left ${getButtonStyles()} transition-colors flex items-center justify-between`}
+                  >
+                    <div className="flex flex-col items-start">
+                      <span className={`font-semibold text-base ${getTextStyles()}`}>
+                        {matchingPassport?.name}
+                      </span>
+                      <span className={`font-mono text-xs ${status === "Completed" ? "text-zinc-400 dark:text-zinc-500" : "text-zinc-500 dark:text-zinc-400"}`}>
+                        ID: {nft.owner.slice(0, 6)}...{nft.owner.slice(-4)}
+                      </span>
+                    </div>
+                    <span className={status === "Completed" ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-400"}>
+                      {expandedTokenId === nft.tokenId ? "−" : "+"}
                     </span>
-                    <span className={`font-mono text-xs ${status === "Completed" ? "text-zinc-400 dark:text-zinc-500" : "text-zinc-500 dark:text-zinc-400"}`}>
-                      ID: {nft.owner.slice(0, 6)}...{nft.owner.slice(-4)}
-                    </span>
-                  </div>
-                  <span className={status === "Completed" ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-400"}>
-                    {expandedTokenId === nft.tokenId ? "−" : "+"}
-                  </span>
-                </button>
-                {expandedTokenId === nft.tokenId && (
-                  <div className={`px-4 pb-4 pt-2 border-t ${status === "Completed" ? "border-zinc-200 dark:border-zinc-800" : "border-zinc-300 dark:border-zinc-700"}`}>
-                    <div className="space-y-4">
-                      {/* Patient Information Section */}
-                      <div className="space-y-2 text-sm">
-                        <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Patient Information</h3>
-                        <div>
-                          <span className="font-medium text-black dark:text-zinc-50">Name: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">
-                            {matchingPassport?.name || "N/A"}
-                          </span>
-                        </div>
-                        {age !== null && (
+                  </button>
+                  {expandedTokenId === nft.tokenId && (
+                    <div className={`px-4 pb-4 pt-2 border-t ${status === "Completed" ? "border-zinc-200 dark:border-zinc-800" : "border-zinc-300 dark:border-zinc-700"}`}>
+                      <div className="space-y-4">
+                        {/* Patient Information Section */}
+                        <div className="space-y-2 text-sm">
+                          <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Patient Information</h3>
                           <div>
-                            <span className="font-medium text-black dark:text-zinc-50">Age: </span>
-                            <span className="text-zinc-600 dark:text-zinc-400">{age} years</span>
-                          </div>
-                        )}
-                        <div>
-                          <span className="font-medium text-black dark:text-zinc-50">Date of Birth: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">
-                            {matchingPassport?.dateOfBirth || "N/A"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-medium text-black dark:text-zinc-50">Contact Info: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">
-                            {matchingPassport?.contactInfo || "N/A"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-medium text-black dark:text-zinc-50">Patient ID: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400 font-mono text-xs">
-                            {nft.owner}
-                          </span>
-                        </div>
-                        {patientStatuses[nft.tokenId] && (
-                          <div>
-                            <span className="font-medium text-black dark:text-zinc-50">Status: </span>
-                            <span className={`font-semibold ${
-                              patientStatuses[nft.tokenId] === "Pending" 
-                                ? "text-orange-600 dark:text-orange-400" 
-                                : patientStatuses[nft.tokenId] === "Completed"
-                                ? "text-green-600 dark:text-green-400"
-                                : "text-zinc-600 dark:text-zinc-400"
-                            }`}>
-                              {patientStatuses[nft.tokenId]}
+                            <span className="font-medium text-black dark:text-zinc-50">Name: </span>
+                            <span className="text-zinc-600 dark:text-zinc-400">
+                              {matchingPassport?.name || "N/A"}
                             </span>
                           </div>
+                          {age !== null && (
+                            <div>
+                              <span className="font-medium text-black dark:text-zinc-50">Age: </span>
+                              <span className="text-zinc-600 dark:text-zinc-400">{age} years</span>
+                            </div>
+                          )}
+                          <div>
+                            <span className="font-medium text-black dark:text-zinc-50">Date of Birth: </span>
+                            <span className="text-zinc-600 dark:text-zinc-400">
+                              {matchingPassport?.dateOfBirth || "N/A"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-medium text-black dark:text-zinc-50">Contact Info: </span>
+                            <span className="text-zinc-600 dark:text-zinc-400">
+                              {matchingPassport?.contactInfo || "N/A"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-medium text-black dark:text-zinc-50">Patient ID: </span>
+                            <span className="text-zinc-600 dark:text-zinc-400 font-mono text-xs">
+                              {nft.owner}
+                            </span>
+                          </div>
+                          {patientStatuses[nft.tokenId] && (
+                            <div>
+                              <span className="font-medium text-black dark:text-zinc-50">Status: </span>
+                              <span className={`font-semibold ${patientStatuses[nft.tokenId] === "Pending"
+                                  ? "text-orange-600 dark:text-orange-400"
+                                  : patientStatuses[nft.tokenId] === "Completed"
+                                    ? "text-green-600 dark:text-green-400"
+                                    : "text-zinc-600 dark:text-zinc-400"
+                                }`}>
+                                {patientStatuses[nft.tokenId]}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Medical Information Section */}
+                        {matchingPassport && (
+                          <div className="space-y-2 text-sm border-t border-zinc-200 dark:border-zinc-700 pt-3">
+                            <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Medical Information</h3>
+                            {matchingPassport.allergies && matchingPassport.allergies.trim() !== "" && (
+                              <div className="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                                <span className="font-semibold text-red-900 dark:text-red-200">⚠️ Allergies: </span>
+                                <span className="text-red-800 dark:text-red-300">{matchingPassport.allergies}</span>
+                              </div>
+                            )}
+                            {matchingPassport.currentMedications && matchingPassport.currentMedications.trim() !== "" && (
+                              <div>
+                                <span className="font-medium text-black dark:text-zinc-50">Current Medications: </span>
+                                <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.currentMedications}</span>
+                              </div>
+                            )}
+                            {matchingPassport.medicalHistory && matchingPassport.medicalHistory.trim() !== "" && (
+                              <div>
+                                <span className="font-medium text-black dark:text-zinc-50">Medical History: </span>
+                                <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.medicalHistory}</span>
+                              </div>
+                            )}
+                            {matchingPassport.pastDiagnoses && matchingPassport.pastDiagnoses.trim() !== "" && (
+                              <div>
+                                <span className="font-medium text-black dark:text-zinc-50">Past Diagnoses: </span>
+                                <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.pastDiagnoses}</span>
+                              </div>
+                            )}
+                            {matchingPassport.familyHistory && matchingPassport.familyHistory.trim() !== "" && (
+                              <div>
+                                <span className="font-medium text-black dark:text-zinc-50">Family History: </span>
+                                <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.familyHistory}</span>
+                              </div>
+                            )}
+                            {matchingPassport.vitalSigns && matchingPassport.vitalSigns.trim() !== "" && (
+                              <div>
+                                <span className="font-medium text-black dark:text-zinc-50">Vital Signs: </span>
+                                <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.vitalSigns}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Prescription Information Section */}
+                        <div className="space-y-2 text-sm border-t border-zinc-200 dark:border-zinc-700 pt-3">
+                          <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Prescription Details</h3>
+                          <div>
+                            <span className="font-medium text-black dark:text-zinc-50">Medication: </span>
+                            <span className="text-zinc-600 dark:text-zinc-400 font-semibold">{nft.medication}</span>
+                          </div>
+                          <div>
+                            <span className="font-medium text-black dark:text-zinc-50">Dosage: </span>
+                            <span className="text-zinc-600 dark:text-zinc-400">{nft.dosage}</span>
+                          </div>
+                          <div>
+                            <span className="font-medium text-black dark:text-zinc-50">Instructions: </span>
+                            <span className="text-zinc-600 dark:text-zinc-400">{nft.instructions}</span>
+                          </div>
+                        </div>
+                        {pharmacistInstructions[nft.tokenId] && patientStatuses[nft.tokenId] !== "Completed" && (
+                          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
+                            <h4 className="font-semibold text-blue-900 dark:text-blue-200 mb-2 text-sm">Pharmacist Instructions:</h4>
+                            <p className="text-sm text-blue-800 dark:text-blue-300">{pharmacistInstructions[nft.tokenId]}</p>
+                          </div>
+                        )}
+                        {patientStatuses[nft.tokenId] === "Pending" && (
+                          <button
+                            onClick={() => handleFinishPrescription(nft.tokenId)}
+                            className="w-full px-4 py-2 bg-green-600 dark:bg-green-500 text-white rounded-md font-medium hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
+                          >
+                            Finish Prescription
+                          </button>
+                        )}
+                        {patientStatuses[nft.tokenId] !== "Pending" && patientStatuses[nft.tokenId] !== "Completed" && (
+                          <button
+                            onClick={() => openPrescriptionModal(nft)}
+                            className="w-full px-4 py-2 bg-black dark:bg-zinc-50 text-white dark:text-black rounded-md font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"
+                          >
+                            Review Prescription
+                          </button>
                         )}
                       </div>
-
-                      {/* Medical Information Section */}
-                      {matchingPassport && (
-                        <div className="space-y-2 text-sm border-t border-zinc-200 dark:border-zinc-700 pt-3">
-                          <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Medical Information</h3>
-                          {matchingPassport.allergies && matchingPassport.allergies.trim() !== "" && (
-                            <div className="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
-                              <span className="font-semibold text-red-900 dark:text-red-200">⚠️ Allergies: </span>
-                              <span className="text-red-800 dark:text-red-300">{matchingPassport.allergies}</span>
-                            </div>
-                          )}
-                          {matchingPassport.currentMedications && matchingPassport.currentMedications.trim() !== "" && (
-                            <div>
-                              <span className="font-medium text-black dark:text-zinc-50">Current Medications: </span>
-                              <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.currentMedications}</span>
-                            </div>
-                          )}
-                          {matchingPassport.medicalHistory && matchingPassport.medicalHistory.trim() !== "" && (
-                            <div>
-                              <span className="font-medium text-black dark:text-zinc-50">Medical History: </span>
-                              <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.medicalHistory}</span>
-                            </div>
-                          )}
-                          {matchingPassport.pastDiagnoses && matchingPassport.pastDiagnoses.trim() !== "" && (
-                            <div>
-                              <span className="font-medium text-black dark:text-zinc-50">Past Diagnoses: </span>
-                              <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.pastDiagnoses}</span>
-                            </div>
-                          )}
-                          {matchingPassport.familyHistory && matchingPassport.familyHistory.trim() !== "" && (
-                            <div>
-                              <span className="font-medium text-black dark:text-zinc-50">Family History: </span>
-                              <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.familyHistory}</span>
-                            </div>
-                          )}
-                          {matchingPassport.vitalSigns && matchingPassport.vitalSigns.trim() !== "" && (
-                            <div>
-                              <span className="font-medium text-black dark:text-zinc-50">Vital Signs: </span>
-                              <span className="text-zinc-600 dark:text-zinc-400">{matchingPassport.vitalSigns}</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Prescription Information Section */}
-                      <div className="space-y-2 text-sm border-t border-zinc-200 dark:border-zinc-700 pt-3">
-                        <h3 className="font-semibold text-black dark:text-zinc-50 mb-3">Prescription Details</h3>
-                        <div>
-                          <span className="font-medium text-black dark:text-zinc-50">Medication: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400 font-semibold">{nft.medication}</span>
-                        </div>
-                        <div>
-                          <span className="font-medium text-black dark:text-zinc-50">Dosage: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">{nft.dosage}</span>
-                        </div>
-                        <div>
-                          <span className="font-medium text-black dark:text-zinc-50">Instructions: </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">{nft.instructions}</span>
-                        </div>
-                      </div>
-                      {pharmacistInstructions[nft.tokenId] && patientStatuses[nft.tokenId] !== "Completed" && (
-                        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
-                          <h4 className="font-semibold text-blue-900 dark:text-blue-200 mb-2 text-sm">Pharmacist Instructions:</h4>
-                          <p className="text-sm text-blue-800 dark:text-blue-300">{pharmacistInstructions[nft.tokenId]}</p>
-                        </div>
-                      )}
-                      {patientStatuses[nft.tokenId] === "Pending" && (
-                        <button
-                          onClick={() => handleFinishPrescription(nft.tokenId)}
-                          className="w-full px-4 py-2 bg-green-600 dark:bg-green-500 text-white rounded-md font-medium hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
-                        >
-                          Finish Prescription
-                        </button>
-                      )}
-                      {patientStatuses[nft.tokenId] !== "Pending" && patientStatuses[nft.tokenId] !== "Completed" && (
-                        <button
-                          onClick={() => openPrescriptionModal(nft)}
-                          className="w-full px-4 py-2 bg-black dark:bg-zinc-50 text-white dark:text-black rounded-md font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"
-                        >
-                          Review Prescription
-                        </button>
-                      )}
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -442,7 +442,7 @@ export default function Home() {
                     )}
                   </div>
                 )}
-                
+
                 {/* Prescription Details */}
                 <div className="space-y-2">
                   <h3 className="font-semibold text-black dark:text-zinc-50 mb-2">Prescription Details</h3>
@@ -482,6 +482,18 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* Pharmacist Profile - Below Main Section */}
+      <div className="flex items-center gap-4">
+        <div>
+          <img src="Charles.png" alt="Pharmacist Icon" className="w-12 h-12 rounded-full" />
+        </div>
+        <div>
+          <p className="font-medium text-black dark:text-zinc-50">Charles Doherty</p>
+          <p className="text-sm text-gray-400 dark:text-zinc-400">Licensed Pharmacist</p>
+        </div>
+      </div>
+      </div>
     </div>
   );
 }
