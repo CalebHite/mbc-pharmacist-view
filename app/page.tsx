@@ -4,6 +4,7 @@
 import { useState, useEffect } from "react";
 import { readAllPrescriptionNFTs } from "@/lib/prescriptions";
 import { readAllMedicalPassportNFTs } from "@/lib/passports";
+import { createUSDCTransferRequest, usdcToBigInt } from "@/lib/payments";
 
 type PrescriptionNFT = {
   tokenId: number;
@@ -56,6 +57,9 @@ export default function Home() {
   const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionWithPassport | null>(null);
   const [patientStatuses, setPatientStatuses] = useState<Record<number, string>>({});
   const [pharmacistInstructions, setPharmacistInstructions] = useState<Record<number, string>>({});
+  const [usdcAmounts, setUsdcAmounts] = useState<Record<number, string>>({});
+  const [transferLoading, setTransferLoading] = useState<Record<number, boolean>>({});
+  const [transferErrors, setTransferErrors] = useState<Record<number, string>>({});
 
   useEffect(() => {
     const loadNFTs = async () => {
@@ -165,11 +169,106 @@ export default function Home() {
     closePrescriptionModal();
   };
 
-  const handleFinishPrescription = (tokenId: number) => {
-    setPatientStatuses((prev) => ({
-      ...prev,
-      [tokenId]: "Completed"
-    }));
+  const handleFinishPrescription = async (tokenId: number) => {
+    const prescription = nfts.find(nft => nft.tokenId === tokenId);
+    if (!prescription) return;
+
+    const usdcAmountStr = usdcAmounts[tokenId];
+    if (!usdcAmountStr || parseFloat(usdcAmountStr) <= 0) {
+      setTransferErrors((prev) => ({
+        ...prev,
+        [tokenId]: "Please enter a valid USDC amount to request"
+      }));
+      return;
+    }
+
+    // Get private key from environment variable (pharmacist's wallet)
+    // Note: In production, this should be done server-side via an API route
+    const pharmacistPrivateKey = process.env.NEXT_PUBLIC_PRIVATE_KEY;
+    if (!pharmacistPrivateKey) {
+      setTransferErrors((prev) => ({
+        ...prev,
+        [tokenId]: "Private key not configured. Please set NEXT_PUBLIC_PRIVATE_KEY in your environment."
+      }));
+      return;
+    }
+
+    setTransferLoading((prev) => ({ ...prev, [tokenId]: true }));
+    setTransferErrors((prev) => ({ ...prev, [tokenId]: "" }));
+
+    try {
+      const usdcAmount = parseFloat(usdcAmountStr);
+      const amountInSubunits = usdcToBigInt(usdcAmount);
+      
+      // Get pharmacist's address from private key
+      // The patient needs to send USDC to the pharmacist
+      // Note: This creates a payment request. The actual transfer requires the patient's private key
+      const { privateKeyToAccount } = await import("viem/accounts");
+      const pharmacistAccount = privateKeyToAccount(
+        (pharmacistPrivateKey.startsWith("0x") ? pharmacistPrivateKey : `0x${pharmacistPrivateKey}`) as `0x${string}`
+      );
+      const pharmacistAddress = pharmacistAccount.address;
+
+      // Create payment request: Patient should send USDC to pharmacist
+      // For now, we'll log the request. In a full implementation, this would:
+      // 1. Store the request on-chain or in a database
+      // 2. The patient would see the request and approve it
+      // 3. The patient would initiate the transfer with their private key
+      
+      const paymentRequest = {
+        tokenId,
+        patientAddress: prescription.owner,
+        pharmacistAddress,
+        amount: usdcAmount,
+        amountInSubunits: amountInSubunits.toString(),
+        status: "pending" as const,
+        createdAt: new Date().toISOString(),
+      };
+
+      console.log("Payment Request Created:", paymentRequest);
+      
+      // Store payment request in localStorage so patient can access it
+      // In production, this would be stored in a database or on-chain
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          const stored = localStorage.getItem('paymentRequests');
+          const requests = stored ? JSON.parse(stored) : [];
+          requests.push(paymentRequest);
+          localStorage.setItem('paymentRequests', JSON.stringify(requests));
+          console.log("Payment request stored in localStorage");
+        } catch (error) {
+          console.error("Failed to store payment request:", error);
+        }
+      }
+      
+      // For demonstration: If you want to actually execute the transfer,
+      // you would need the patient's private key. Since we don't have it,
+      // we'll just mark the prescription as completed with a payment request
+      
+      setPatientStatuses((prev) => ({
+        ...prev,
+        [tokenId]: "Completed"
+      }));
+      
+      // Store payment request info (in a real app, this would go to a database)
+      setTransferErrors((prev) => ({ ...prev, [tokenId]: "" }));
+      
+      // Clear the USDC amount input
+      setUsdcAmounts((prev) => {
+        const updated = { ...prev };
+        delete updated[tokenId];
+        return updated;
+      });
+
+      alert(`Payment request created: ${usdcAmount} USDC requested from patient ${prescription.owner.slice(0, 6)}...${prescription.owner.slice(-4)}. The patient needs to approve and send the payment.`);
+    } catch (error: any) {
+      setTransferErrors((prev) => ({
+        ...prev,
+        [tokenId]: error.message || "An error occurred creating the payment request"
+      }));
+    } finally {
+      setTransferLoading((prev) => ({ ...prev, [tokenId]: false }));
+    }
   };
 
 
@@ -386,12 +485,46 @@ export default function Home() {
                           </div>
                         )}
                         {patientStatuses[nft.tokenId] === "Pending" && (
-                          <button
-                            onClick={() => handleFinishPrescription(nft.tokenId)}
-                            className="w-full px-4 py-2 bg-green-600 dark:bg-green-500 text-white rounded-md font-medium hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
-                          >
-                            Finish Prescription
-                          </button>
+                          <div className="space-y-3">
+                            <div className="space-y-2">
+                              <label className="block text-sm font-medium text-black dark:text-zinc-50">
+                                Request USDC Amount
+                              </label>
+                              <div className="relative">
+                                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500 dark:text-zinc-400">
+                                  $
+                                </span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={usdcAmounts[nft.tokenId] || ""}
+                                  onChange={(e) => setUsdcAmounts((prev) => ({
+                                    ...prev,
+                                    [nft.tokenId]: e.target.value
+                                  }))}
+                                  className="w-full pl-8 pr-3 py-2 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-black dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-transparent"
+                                  placeholder="0.00"
+                                  disabled={transferLoading[nft.tokenId]}
+                                />
+                              </div>
+                              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                Enter the amount in USDC to request from the patient
+                              </p>
+                              {transferErrors[nft.tokenId] && (
+                                <p className="text-xs text-red-600 dark:text-red-400">
+                                  {transferErrors[nft.tokenId]}
+                                </p>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => handleFinishPrescription(nft.tokenId)}
+                              disabled={transferLoading[nft.tokenId]}
+                              className="w-full px-4 py-2 bg-green-600 dark:bg-green-500 text-white rounded-md font-medium hover:bg-green-700 dark:hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {transferLoading[nft.tokenId] ? "Creating Payment Request..." : "Finish Prescription"}
+                            </button>
+                          </div>
                         )}
                         {patientStatuses[nft.tokenId] !== "Pending" && patientStatuses[nft.tokenId] !== "Completed" && (
                           <button

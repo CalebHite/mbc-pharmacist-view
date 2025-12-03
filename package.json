@@ -9,10 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "axios": "^1.7.9",
     "ethers": "^6.15.0",
     "next": "16.0.6",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "viem": "^2.40.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
