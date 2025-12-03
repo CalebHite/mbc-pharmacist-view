@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { readAllPrescriptionNFTs } from "@/lib/prescriptions";
 import { readAllMedicalPassportNFTs } from "@/lib/passports";
+import { createUSDCTransferRequest, usdcToBigInt } from "@/lib/payments";
 import {
   DeliveryFormState,
   EMPTY_DELIVERY_FORM,
@@ -67,6 +68,8 @@ export default function PrescriptionWorkspacePage() {
 
   const [billAmount, setBillAmount] = useState<number | null>(null);
   const [billingInput, setBillingInput] = useState<string>("");
+  const [billCreating, setBillCreating] = useState(false);
+  const [billError, setBillError] = useState<string | null>(null);
 
   const [fulfillmentMethod, setFulfillmentMethod] =
     useState<FulfillmentMethod>("Pickup");
@@ -139,19 +142,85 @@ export default function PrescriptionWorkspacePage() {
     setMessage("Flagged for clarification. Add details in your internal system.");
   };
 
-  const handleCreateBill = () => {
+  const handleCreateBill = async () => {
     if (!prescription) return;
 
     const num = parseFloat(billingInput);
     if (Number.isNaN(num) || num <= 0) {
       setMessage("Please enter a valid bill amount.");
+      setBillError("Please enter a valid bill amount.");
       return;
     }
 
-    setBillAmount(num);
-    setStatus("Pending Payment");
-    addEvent(`Bill created for ${num} USDC`);
-    setMessage(`Bill created for ${num} USDC. Mark as paid once confirmed.`);
+    // Get pharmacist's private key from environment
+    const pharmacistPrivateKey = process.env.NEXT_PUBLIC_PRIVATE_KEY;
+    if (!pharmacistPrivateKey) {
+      const errorMsg = "Private key not configured. Please set NEXT_PUBLIC_PRIVATE_KEY in your environment.";
+      setMessage(errorMsg);
+      setBillError(errorMsg);
+      return;
+    }
+
+    setBillCreating(true);
+    setBillError(null);
+    setMessage("Creating payment request...");
+
+    try {
+      const amountInSubunits = usdcToBigInt(num);
+      
+      // Get pharmacist's address from private key
+      const { privateKeyToAccount } = await import("viem/accounts");
+      const pharmacistAccount = privateKeyToAccount(
+        (pharmacistPrivateKey.startsWith("0x") ? pharmacistPrivateKey : `0x${pharmacistPrivateKey}`) as `0x${string}`
+      );
+      const pharmacistAddress = pharmacistAccount.address;
+
+      // Create payment request: Patient should send USDC to pharmacist
+      // Note: createUSDCTransferRequest transfers FROM the pharmacist TO the patient
+      // For billing, we want the patient to pay the pharmacist, so we'll create a request record
+      // The actual transfer will happen when the patient initiates payment
+      
+      const billId = `BILL-${Date.now()}-${prescription.tokenId}`;
+      const bill = {
+        id: billId,
+        tokenId: prescription.tokenId,
+        patientAddress: prescription.owner,
+        pharmacistAddress,
+        amount: num,
+        amountInSubunits: amountInSubunits.toString(),
+        status: "Pending" as const,
+        createdAt: new Date().toISOString(),
+        medication: prescription.medication,
+        dosage: prescription.dosage,
+      };
+
+      // Store bill in localStorage
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          const stored = localStorage.getItem('pharmacyBills');
+          const bills = stored ? JSON.parse(stored) : [];
+          bills.push(bill);
+          localStorage.setItem('pharmacyBills', JSON.stringify(bills));
+        } catch (error) {
+          console.error("Failed to store bill:", error);
+        }
+      }
+
+      setBillAmount(num);
+      setStatus("Pending Payment");
+      addEvent(`Bill created for ${num} USDC (Bill ID: ${billId})`);
+      setMessage(`Bill created successfully! Bill ID: ${billId}. Amount: ${num} USDC. The patient can now pay this bill.`);
+      
+      // Clear billing input
+      setBillingInput("");
+    } catch (error: any) {
+      const errorMsg = error.message || "An error occurred creating the bill";
+      setMessage(errorMsg);
+      setBillError(errorMsg);
+      addEvent(`Failed to create bill: ${errorMsg}`);
+    } finally {
+      setBillCreating(false);
+    }
   };
 
   const handleMarkPaid = () => {
@@ -365,6 +434,8 @@ export default function PrescriptionWorkspacePage() {
               onBillingInputChange={setBillingInput}
               onCreateBill={handleCreateBill}
               onMarkPaid={handleMarkPaid}
+              creating={billCreating}
+              error={billError}
             />
           )}
 
@@ -433,18 +504,22 @@ function BillingTab({
   onBillingInputChange,
   onCreateBill,
   onMarkPaid,
+  creating,
+  error,
 }: {
   billAmount: number | null;
   billingInput: string;
   onBillingInputChange: (value: string) => void;
   onCreateBill: () => void;
   onMarkPaid: () => void;
+  creating?: boolean;
+  error?: string | null;
 }) {
   return (
     <div className="space-y-3 text-sm">
       <p className="text-slate-300">
-        Set the bill amount for this prescription. Later, this will mint a bill
-        NFT and connect to your payment flow.
+        Set the bill amount for this prescription. This will create a payment request
+        that the patient can pay using USDC.
       </p>
 
       <div className="flex flex-col md:flex-row gap-3 md:items-center">
@@ -458,23 +533,32 @@ function BillingTab({
             step="0.01"
             value={billingInput}
             onChange={(e) => onBillingInputChange(e.target.value)}
-            className="w-full rounded-xl bg-slate-950 border border-slate-700 px-7 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/40 transition-all"
+            disabled={creating}
+            className="w-full rounded-xl bg-slate-950 border border-slate-700 px-7 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             placeholder="Amount in USDC"
           />
         </div>
         <button
           onClick={onCreateBill}
-          className="inline-flex items-center justify-center rounded-xl bg-slate-100 text-slate-950 px-4 py-2.5 text-xs font-semibold hover:bg-slate-200 transition-all"
+          disabled={creating}
+          className="inline-flex items-center justify-center rounded-xl bg-slate-100 text-slate-950 px-4 py-2.5 text-xs font-semibold hover:bg-slate-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {billAmount ? "Update bill" : "Create bill"}
+          {creating ? "Creating..." : billAmount ? "Update bill" : "Create bill"}
         </button>
         <button
           onClick={onMarkPaid}
-          className="inline-flex items-center justify-center rounded-xl border border-emerald-400/70 text-emerald-200 px-4 py-2.5 text-xs font-medium hover:bg-emerald-500/10 transition-all"
+          disabled={!billAmount || creating}
+          className="inline-flex items-center justify-center rounded-xl border border-emerald-400/70 text-emerald-200 px-4 py-2.5 text-xs font-medium hover:bg-emerald-500/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Mark as paid
         </button>
       </div>
+
+      {error && (
+        <p className="text-xs text-red-400">
+          {error}
+        </p>
+      )}
 
       {billAmount && (
         <p className="text-xs text-slate-400">
