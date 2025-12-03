@@ -338,3 +338,118 @@ export function bigIntToUSDC(amount: bigint): number {
   return Number(amount) / 1_000_000;
 }
 
+/**
+ * Creates a payment request for billing
+ * This initiates a USDC transfer FROM the patient TO the pharmacist
+ * 
+ * @param params - Payment request parameters
+ * @returns Promise with payment request result
+ */
+export interface PaymentRequestParams {
+  patientPrivateKey: string; // Patient's private key to initiate payment
+  pharmacistAddress: string; // Pharmacist's address (destination)
+  amount: bigint; // Amount in 10^6 subunits
+  billId?: string; // Optional bill ID for tracking
+}
+
+export interface PaymentRequestResult {
+  success: boolean;
+  approvalTx?: string;
+  burnTx?: string;
+  mintTx?: string;
+  error?: string;
+  message?: string;
+}
+
+/**
+ * Creates a payment request that transfers USDC from patient to pharmacist
+ * Note: This requires the patient's private key to initiate the transfer
+ */
+export async function createPaymentRequest(
+  params: PaymentRequestParams
+): Promise<PaymentRequestResult> {
+  try {
+    // Validate inputs
+    if (!params.patientPrivateKey) {
+      throw new Error("Patient private key is required");
+    }
+    if (!params.pharmacistAddress) {
+      throw new Error("Pharmacist address is required");
+    }
+    if (!params.amount || params.amount <= 0n) {
+      throw new Error("Amount must be greater than 0");
+    }
+
+    // Validate pharmacist address format
+    if (!/^0x[a-fA-F0-9]{40}$/.test(params.pharmacistAddress)) {
+      throw new Error("Invalid pharmacist address format");
+    }
+
+    // Create transfer request FROM patient TO pharmacist
+    // The patient's address will be derived from their private key
+    const transferResult = await createUSDCTransferRequest({
+      privateKey: params.patientPrivateKey,
+      destinationAddress: params.pharmacistAddress,
+      amount: params.amount,
+    });
+
+    if (!transferResult.success) {
+      return {
+        success: false,
+        error: transferResult.error || "Failed to create payment request",
+      };
+    }
+
+    return {
+      success: true,
+      approvalTx: transferResult.approvalTx,
+      burnTx: transferResult.burnTx,
+      mintTx: transferResult.mintTx,
+      message: `Payment request created successfully. Bill ID: ${params.billId || 'N/A'}`,
+    };
+  } catch (error: any) {
+    console.error("Payment request creation error:", error);
+    return {
+      success: false,
+      error: error.message || "Unknown error occurred",
+    };
+  }
+}
+
+/**
+ * Creates a payment request instruction (without initiating transfer)
+ * This is used when we don't have the patient's private key
+ * The instruction can be fulfilled by the patient later
+ */
+export interface PaymentInstruction {
+  billId: string;
+  pharmacistAddress: string;
+  patientAddress: string;
+  amount: bigint;
+  amountInUSDC: number;
+  createdAt: string;
+  status: "pending" | "completed";
+  transferDetails?: {
+    approvalTx?: string;
+    burnTx?: string;
+    mintTx?: string;
+  };
+}
+
+export function createPaymentInstruction(
+  billId: string,
+  pharmacistAddress: string,
+  patientAddress: string,
+  amountInUSDC: number
+): PaymentInstruction {
+  return {
+    billId,
+    pharmacistAddress,
+    patientAddress,
+    amount: usdcToBigInt(amountInUSDC),
+    amountInUSDC,
+    createdAt: new Date().toISOString(),
+    status: "pending",
+  };
+}
+

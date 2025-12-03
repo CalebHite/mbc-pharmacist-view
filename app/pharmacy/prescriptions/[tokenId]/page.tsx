@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { readAllPrescriptionNFTs } from "@/lib/prescriptions";
 import { readAllMedicalPassportNFTs } from "@/lib/passports";
-import { createUSDCTransferRequest, usdcToBigInt } from "@/lib/payments";
+import { createUSDCTransferRequest, usdcToBigInt, createPaymentInstruction, createPaymentRequest, type PaymentInstruction } from "@/lib/payments";
 import {
   DeliveryFormState,
   EMPTY_DELIVERY_FORM,
@@ -163,7 +163,7 @@ export default function PrescriptionWorkspacePage() {
 
     setBillCreating(true);
     setBillError(null);
-    setMessage("Creating payment request...");
+    setMessage("Creating payment request with Circle...");
 
     try {
       const amountInSubunits = usdcToBigInt(num);
@@ -175,26 +175,86 @@ export default function PrescriptionWorkspacePage() {
       );
       const pharmacistAddress = pharmacistAccount.address;
 
-      // Create payment request: Patient should send USDC to pharmacist
-      // Note: createUSDCTransferRequest transfers FROM the pharmacist TO the patient
-      // For billing, we want the patient to pay the pharmacist, so we'll create a request record
-      // The actual transfer will happen when the patient initiates payment
-      
+      // Validate patient address (this is where payment will be initiated FROM)
+      const patientAddress = prescription.owner;
+      if (!patientAddress || !/^0x[a-fA-F0-9]{40}$/.test(patientAddress)) {
+        throw new Error("Invalid patient address. Cannot create payment request.");
+      }
+
+      // Validate pharmacist address (this is where payment will be sent TO)
+      if (!pharmacistAddress || !/^0x[a-fA-F0-9]{40}$/.test(pharmacistAddress)) {
+        throw new Error("Invalid pharmacist address. Cannot create payment request.");
+      }
+
+      // Create payment instruction for Circle
+      // This will transfer FROM patient TO pharmacist
       const billId = `BILL-${Date.now()}-${prescription.tokenId}`;
+      const paymentInstruction = createPaymentInstruction(
+        billId,
+        pharmacistAddress, // Destination: pharmacist receives payment
+        patientAddress,    // Source: patient initiates payment
+        num
+      );
+
+      // Try to get patient's private key to initiate payment
+      // In a real scenario, the patient would approve this from their side
+      // For now, we'll check if there's a patient private key available
+      const patientPrivateKey = process.env.NEXT_PUBLIC_PATIENT_PRIVATE_KEY;
+      
+      let paymentResult = null;
+      if (patientPrivateKey) {
+        // If we have the patient's private key, actually initiate the Circle payment
+        // This will transfer USDC FROM patient (Ethereum Sepolia) TO pharmacist (Avalanche Fuji)
+        setMessage("Initiating Circle payment transfer from patient to pharmacist...");
+        paymentResult = await createPaymentRequest({
+          patientPrivateKey,      // Patient's key to initiate transfer
+          pharmacistAddress,       // Pharmacist's address to receive payment
+          amount: amountInSubunits,
+          billId,
+        });
+
+        if (paymentResult.success) {
+          // Update payment instruction with transfer details
+          paymentInstruction.status = "completed";
+          paymentInstruction.transferDetails = {
+            approvalTx: paymentResult.approvalTx,
+            burnTx: paymentResult.burnTx,
+            mintTx: paymentResult.mintTx,
+          };
+          setMessage(`Circle payment initiated successfully! Transfer details saved.`);
+        } else {
+          setMessage(`Payment instruction created, but transfer failed: ${paymentResult.error}. Patient can fulfill payment manually.`);
+        }
+      } else {
+        // Create payment instruction that patient can fulfill
+        // The instruction contains all details needed for the patient to initiate payment
+        setMessage("Payment instruction created. Patient can fulfill payment from their side.");
+      }
+
+      // Create bill record with payment instruction
+      // Convert BigInt values to strings for JSON serialization
+      const serializablePaymentInstruction = {
+        ...paymentInstruction,
+        amount: paymentInstruction.amount.toString(), // Convert BigInt to string
+      };
+
       const bill = {
         id: billId,
         tokenId: prescription.tokenId,
-        patientAddress: prescription.owner,
+        patientAddress,
         pharmacistAddress,
         amount: num,
         amountInSubunits: amountInSubunits.toString(),
-        status: "Pending" as const,
+        status: paymentResult?.success ? "Paid" as const : "Pending" as const,
         createdAt: new Date().toISOString(),
         medication: prescription.medication,
         dosage: prescription.dosage,
+        paymentInstruction: serializablePaymentInstruction,
+        transferDetails: paymentResult?.success ? paymentInstruction.transferDetails : undefined,
       };
 
       // Store bill in localStorage
+      // Bills are stored with patientAddress, so patient view can query by address
       if (typeof window !== 'undefined' && window.localStorage) {
         try {
           const stored = localStorage.getItem('pharmacyBills');
@@ -203,13 +263,19 @@ export default function PrescriptionWorkspacePage() {
           localStorage.setItem('pharmacyBills', JSON.stringify(bills));
         } catch (error) {
           console.error("Failed to store bill:", error);
+          throw new Error("Failed to store bill in localStorage");
         }
       }
 
       setBillAmount(num);
-      setStatus("Pending Payment");
-      addEvent(`Bill created for ${num} USDC (Bill ID: ${billId})`);
-      setMessage(`Bill created successfully! Bill ID: ${billId}. Amount: ${num} USDC. The patient can now pay this bill.`);
+      setStatus(paymentResult?.success ? "Preparing" : "Pending Payment");
+      addEvent(`Bill created for ${num} USDC (Bill ID: ${billId})${paymentResult?.success ? ' - Circle payment initiated' : ' - Payment instruction created'}`);
+      
+      if (paymentResult?.success) {
+        setMessage(`Bill created and Circle payment initiated successfully! Bill ID: ${billId}. Amount: ${num} USDC. Payment transferred FROM patient (${patientAddress.slice(0, 6)}...${patientAddress.slice(-4)}) TO pharmacist (${pharmacistAddress.slice(0, 6)}...${pharmacistAddress.slice(-4)}).`);
+      } else {
+        setMessage(`Bill created successfully! Bill ID: ${billId}. Amount: ${num} USDC. Payment instruction created for patient (${patientAddress.slice(0, 6)}...${patientAddress.slice(-4)}) to pay pharmacist (${pharmacistAddress.slice(0, 6)}...${pharmacistAddress.slice(-4)}). Patient can fulfill payment from their side.`);
+      }
       
       // Clear billing input
       setBillingInput("");

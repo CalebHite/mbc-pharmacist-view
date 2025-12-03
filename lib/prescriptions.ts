@@ -1,4 +1,3 @@
-// readPrescriptionNFT.ts
 import { ethers } from "ethers";
 
 export async function readPrescriptionNFT(
