@@ -594,9 +594,9 @@ function BillingTab({
             $
           </span>
           <input
-            type="number"
-            min={0}
-            step="0.01"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             value={billingInput}
             onChange={(e) => onBillingInputChange(e.target.value)}
             disabled={creating}
